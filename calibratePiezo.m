@@ -12,25 +12,12 @@ fieldsize = [1 45; 1 45;1 45; 1 45];
 definput = {'0000','D1','1','Gaby'};
 answer = inputdlg(prompt,dlgtitle,fieldsize,definput);
 
-
 % CAMERA PARAMETERS:
 exposureTime=20; % exposure time for each frame in ms
 frameRate=30; % in Hz
 % Set exposure time and gain of the camera.
 tlCamera.ExposureTime_us = exposureTime*1000; %convert from ms to us
 tlCamera.FrameRateControlValue_fps=frameRate;
-% Set the FIFO frame buffer size. Default size is 1.
-% if this is large enough, then we should not have any dropped frames.
-% we can confirm this later in terms of the frame serial number saved along
-% with each frame.  If the frame numbers are the same as the serial numbers
-% for that frame, then we did not drop any.  Similary, the frame times
-% should be separated by the reciprocal of the frame rate.  If there are
-% any dropped frames, then frame times that are different than the next
-% expected time as calculated by frame rate, then that is also evidence of
-% dropped frames.  In tests where tlCamera.MaximumNumberOfFramesToQueue is 
-% small, then both measures, frametimes and framenumbers DO indeed show 
-% this discrepancy= numberOfFramesToAcquire;
-
 tlCamera.Disarm;
 %Set the FIFO frame buffer size. Default size is 1.
 movieDuration=2.5; % seconds
@@ -50,7 +37,6 @@ if (gainRange.Maximum > 0)
     tlCamera.Gain = 0;
 end
 
-
 % FILES SETUP
 secondsPerDay=60*60*24;
 filePrefix=datestr(now,'mm-dd-yy');
@@ -63,13 +49,14 @@ end
 dataFilePath=[dataFilePath filePrefix '\'];
 
 
-%WHISKERSTIM PARAMETERS
-stim_cal=80; %80 um/V  This is the output scaling to use for the Polytec Vibrometer.  Also set tracking to slow and periodically hit displacement reset
-
+% WHISKERSTIM PARAMETERS
+stim_cal=80; %80 um/V  This is the output scaling to use for the Polytec Vibrometer. 
+% Also set tracking to slow and rember to periodically hit displacement reset
 desiredmovment = 300; %this is um micromovment desire
 probe1calibration=30; %72 um/volts
 stimScaler=desiredmovment/probe1calibration;
-stimScaler=.125;
+
+stimScaler=.125;  % just set it to a reasonable guess for now
 stim_increment=1;
 total_pulses = 22;              % Number of pulses
 pulse_frequency=10;
@@ -78,22 +65,15 @@ pulse_duration = 0.050;         % Pulse duration in seconds (58 ms)
 rise_time = 0.004;              % Rise time in seconds (4 ms)
 delay_duration = 0.2;           % Delay before pulses start in seconds
 sampleFrequency = 10000;            % Sampling rate in Hz
-sweepLengthSeconds=movieDuration;
-%stimScaler=1; % this is the calibration value for whisker stimular device 
- % the value in volts to apply to the Piezo driver to get the correct
- % amplitude, which should be ~187 um 5 mm from skin, which equals 2
- % degrees total deflection. our devices have a max of 7 volts drive
- 
+sweepLengthSeconds=movieDuration; 
 stimBuffer=WhiskerTemplate(total_pulses, pulse_frequency, pulse_duration, delay_duration, rise_time,sampleFrequency,sweepLengthSeconds,stim_increment)*stimScaler;% with 5 seconds of duration per sweep, and sampling at 10khz
 totalSamples=sweepLengthSeconds*sampleFrequency;
 stimDelay=sweepLengthSeconds/10;
 dq=daq("ni"); % this opens any NI devices
-%CameraTriggerOut=addoutput(dq,'Dev1','port1/line0','digital')
-%write(dq,[1]); %This turns the output on (value =1, which is 5 V).
 fprintf("max stim V %.2f",max(stimBuffer));
 NIDev='Dev1';
 dq.Rate=sampleFrequency;
-CameraFrames=addinput(dq,NIDev,'ai0','Voltage');
+CameraFrames=addinput(dq,NIDev,'ai0','Voltage');  % disconnect Camera frame output, and instead plug in scalar output from inferometer
 StimOut=addoutput(dq,'Dev1','ao0','Voltage');
 figure(1);
 subplot(2,3,1);
@@ -298,22 +278,22 @@ for m=1:numberOfMovies
     save([thisFileName '-struct'],'results');
     while (nextTime>now)
         fprintf(repmat('\b',1,lineLength));
-
         fprintf('%6.1f seconds until next loop',(nextTime-now)*secondsPerDay);
         pause(.1);
     end
 
 end
+
+% the following will now read out the values that came in from the Laser inferometer and compare those to the command voltages and calculate the linear gain.
+
 figure(3);
-meanData=mean(allData')*stim_cal;
+meanData=mean(allData')*stim_cal;  % should obtain the mean response of 5 trials 
 baseline=mean(meanData(1:10));
 meanData=meanData-baseline;
 timePoints=(1:size(data,2))/sampleFrequency;
 plot(timePoints,meanData);
 stims=find(stimBuffer>0);  % any point in the stim buffer that has a positive value, i.e. during a pulse
 stimEnds=find(diff(stims)>1); % find the ends of each pulse
-
-%stimEnds=[stimEnds stims(end)];
 endSamples=([stims(stimEnds) stims(end)])-rise_time*sampleFrequency; 
 stimEndTimes=timePoints(endSamples);
 for i=1:size(stimEndTimes,2)
